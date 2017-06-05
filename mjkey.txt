@@ -1,0 +1,20 @@
+MuJoCo Pro Personal license activation key, number 23393, type 6.
+
+Issued to Gus Liu <gusliu@stanford.edu>.
+
+Expires June 5, 2018.
+
+This file activates MuJoCo Pro on a single computer with id:
+LINUX_32b0i1l0024k73t4_55b9a3di64f2ac4Dafd20cs29a8V205f9d400af6uer447
+
+Do not modify this file. Its entire content, including the
+plain text section, is used by the activation manager.
+
+285189f55d3249296abc65f3ce76daeed80e7e1d7ee5f751305f0aa491f2600c
+43eea870e99036296350f4c6eea1a21afd2be6523a3134b9eb9e21b3e3404846
+29b5c82a10bfaca8535ccc41ff31d6f4ee9e3b5406bba1fc6962d0241fd44940
+9dd98164f3116f806dc04fd65c9832d48e204f8eaaf42b38fbb0f9e661d2ff38
+bc8fcacb5fe2a7657da593c3d98b9bbefc43817814e6155029a1fd2d294aa25c
+4f3d897655f2b58b71c5658170f61a1a345d7a14fc4c32ca67fe6e8836715a4c
+2a231e0f06c7c894d3f21aa353cf82dd2332c7b24490dc091cce14c1f5f41c75
+6fd73ae0a74cfaf926cb5aef0fc52dcc0ae83b7a41dacc011d732a8de9e53bc5
