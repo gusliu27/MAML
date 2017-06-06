@@ -187,6 +187,7 @@ def main():
   vanilla_network = PolicyNetwork()
 
   goal_state = 1.0 #randomly chosen
+  std_devs = np.array([.1 for i in xrange(config.action_space_size)])
   for ep in xrange(config.vanilla_episodes):
     states, actions, rewards = policy_gradient_rollouts(vanilla_network,env,config.num_rollouts,goal_state,config.gamma,config.h,config.reward_type,std_devs)
     if ep%10 == 0:
