@@ -33,6 +33,7 @@ class Config:
     self.action_space_size = args.asp
     self.state_space_size = args.ssp
     self.reward_type = args.rew
+    self.vanilla_episodes = args.ep
 
 
   def __str__(self):
@@ -46,10 +47,10 @@ class Config:
 def parseConfig(description="Default Model Description"):
   parser = argparse.ArgumentParser(description=description)
   
-  parser.add_argument('--g', type=str, help='gamma', default = .95)
+  parser.add_argument('--g', type=str, help='gamma', default = .6)
   parser.add_argument('--bs', type=int, help='batch size of tasks per meta iteration', default = 20)
   parser.add_argument('--h', type=int, help='episode length', default=200)
-  parser.add_argument('--nr', type=int, help='number of rollouts per task', default = 2)
+  parser.add_argument('--nr', type=int, help='number of rollouts per task', default = 20)
   parser.add_argument('--hs', type=int, help='hidden size', default = 100)
   parser.add_argument('--a', type=float, help='alpha', default = 1e-3)
   parser.add_argument('--b', type=float, help='beta', default = 1e-3)
@@ -59,6 +60,7 @@ def parseConfig(description="Default Model Description"):
   parser.add_argument('--asp', type=int, help='action space size', default = 6)
   parser.add_argument('--ssp', type=int, help='state space size', default = 17)
   parser.add_argument('--rew', type=str, help='what type of reward are we using', default = "reward_run")
+  parser.add_argument('--ep', type=str, help='how many episodes to train the vanilla network, if we are training one for comparison to MAML', default = 100)
   args = parser.parse_args()
   return args
 
@@ -74,20 +76,15 @@ def select_action(model, state):
   model.saved_actions.append(action)
   return action.data
 
-def replay_actions(model,states,actions):
-  for state,action in zip(actions,states):
-    state = torch.from_numpy(state).float().unsqueeze(0)
-    output = model(Variable(state))
-    model.saved_actions.append(action)
-
-def train_one_step(model,rewards,lr):
+def train_one_step(model,rewards,lr,doUpdate = True):
   model.train()
   for action, r in zip(model.saved_actions, rewards):
     action.reinforce(r)
   optimizer = optim.Adam(model.parameters(), lr=lr)
   optimizer.zero_grad()
   torch.autograd.backward(model.saved_actions, [None for _ in model.saved_actions])
-  optimizer.step()
+  if doUpdate:
+    optimizer.step()
   del model.rewards[:]
   del model.saved_actions[:]
   return model
@@ -123,39 +120,48 @@ def policy_gradient_rollouts(model,env,num_rollouts,goal_state,gamma,horizon,rew
 
 def train_maml(env,meta_model,config):
   #assuming the model vars are initialized and that needed constants are all in config
-
-
   for meta_iter in xrange(config.num_meta_iterations):
-    test_rollout_states = []
-    test_rollout_actions = []
-    test_rollout_rewards = []
+    #test_rollout_states = []
+    #test_rollout_actions = []
+    #test_rollout_rewards = []
+    total_loss = 0
+    new_model = copy.deepcopy(meta_model)
+    print "meta iteration number " + str(meta_iter)
+    goal_state = 0
     for task_number in xrange(config.meta_batch_size):
       meta_model_copy = copy.deepcopy(meta_model)
-      goal_state = np.random.rand()*config.goal_range
+      goal_state += 1.0*config.goal_range/config.meta_batch_size
       #get rollout for task
-      std_devs = np.array([.5 for i in xrange(config.action_space_size)])
+      std_devs = np.array([.1 for i in xrange(config.action_space_size)])
       states, actions, rewards = policy_gradient_rollouts(meta_model_copy,env,config.num_rollouts,goal_state,config.gamma,config.h,config.reward_type,std_devs)
+      total_loss += np.sum(rewards)
       rewards = torch.Tensor(rewards)
       if task_number % 10 == 0:
+        print "goal_state is " + str(goal_state)
         print "Sum of discounted rewards on training rollouts is " +str(rewards.sum())
-      model = train_one_step(meta_model_copy,rewards,config.alpha)
+      train_one_step(meta_model_copy,rewards,config.alpha)
 
       #get training data for meta learning
-      states, actions, rewards = policy_gradient_rollouts(model,env,config.num_rollouts,goal_state,config.gamma,config.h,config.reward_type,std_devs)
-
+      states, actions, rewards = policy_gradient_rollouts(meta_model_copy,env,config.num_rollouts,goal_state,config.gamma,config.h,config.reward_type,std_devs)
+      train_one_step(meta_model_copy,rewards,config.alpha,False)
+      #meta learning
+      for copy_param, new_model_param in zip(meta_model_copy.parameters(),new_model.parameters()):
+        new_model_param.data -= config.beta*copy_param.grad.data
       if task_number % 10 == 0:
         print "Sum of discounted rewards on test rollouts is " +str(np.sum(rewards))
-      test_rollout_states.extend(states)
-      test_rollout_actions.extend(actions)
-      test_rollout_rewards.extend(rewards)
 
-    #This does not work!!
-    meta_model.train()
-    replay_actions(meta_model,test_rollout_states,test_rollout_actions)
-    meta_model = train_one_step(meta_model,test_rollout_rewards,config.beta)
+      #test_rollout_states.extend(states)
+      #test_rollout_actions.extend(actions)
+      #test_rollout_rewards.extend(rewards)
+    print "average loss from test samples on meta iteration " +str(meta_iter) + " was " + str(total_loss/(config.meta_batch_size*config.num_rollouts))
+    total_loss = 0
+    meta_model = new_model
 
   return meta_model
 
+
+def save_checkpoint(state, filename='checkpoint.pth.tar'):
+    torch.save(state, filename)
 
 def main():
   args = parseConfig()
@@ -169,6 +175,49 @@ def main():
   model = PolicyNetwork()
   model.apply(initialize_weights)
   maml = train_maml(env, model,config)
+  
+  #use this if you want to save the maml!! then you wont have to compute it over and over
+  save_checkpoint({'state_dict': maml.state_dict()},filename="maml.checkpoint.tar")
+  loaded_maml = PolicyNetwork()
+  checkpoint = torch.load("maml.checkpoint.tar")
+  loaded_maml.load_state_dict(checkpoint['state_dict'])
+
+
+  #initialize a network with policy gradient for comparison
+  vanilla_network = PolicyNetwork()
+
+  goal_state = 1.0 #randomly chosen
+  for ep in xrange(config.vanilla_episodes):
+    states, actions, rewards = policy_gradient_rollouts(vanilla_network,env,config.num_rollouts,goal_state,config.gamma,config.h,config.reward_type,std_devs)
+    if ep%10 == 0:
+      print "Vanilla network total rewards is " + str(np.sum(rewards))
+    rewards = torch.Tensor(rewards)
+    train_one_step(vanilla_network,rewards,config.alpha)
+
+  #compare the networks!
+
+  test_goal_state = .45 #randomly chosen 
+  print "comparing networks on goal state of " + str(test_goal_state)
+  for i in xrange(10):#how many times do we want to train the thing on new data??
+    states, actions, rewards = policy_gradient_rollouts(vanilla_network,env,config.num_rollouts,test_goal_state,config.gamma,config.h,config.reward_type,std_devs)
+    print "sum of the rewards for vanilla after " + str(i) +" steps: " + str(np.sum(rewards))
+    train_one_step(vanilla_network,rewards,config.alpha)
+
+    states, actions, rewards = policy_gradient_rollouts(maml,env,config.num_rollouts,test_goal_state,config.gamma,config.h,config.reward_type,std_devs)
+    print "sum of the rewards for maml after " + str(i) +" steps: " + str(np.sum(rewards))
+    train_one_step(maml,rewards,config.alpha)
+
+
+  #initialize a random network for comparison
+  random_model = PolicyNetwork()
+  for i in xrange(10):#how many times do we want to train the thing on new data??
+    states, actions, rewards = policy_gradient_rollouts(random_model,env,config.num_rollouts,test_goal_state,config.gamma,config.h,config.reward_type,std_devs)
+    print "sum of the rewards for random model after " + str(i) +" steps: " + str(np.sum(rewards))
+    train_one_step(random_model,rewards,config.alpha)
+
+    states, actions, rewards = policy_gradient_rollouts(maml,env,config.num_rollouts,test_goal_state,config.gamma,config.h,config.reward_type,std_devs)
+    print "sum of the rewards for maml after " + str(i) +" steps: " + str(np.sum(rewards))
+    train_one_step(maml,rewards,config.alpha)
 
 
 
