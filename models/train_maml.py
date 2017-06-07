@@ -173,9 +173,9 @@ def main():
   #model_vars = []
   #model_vars.append(Variable(torch.randn(config.hidden_size,config.state_space_size).type(config.dtype), requires_grad=True))
   #model_vars.append(Variable(torch.randn(config.action_space_size,config.hidden_size).type(config.dtype), requires_grad=True))
-  model = PolicyNetwork()
-  model.apply(initialize_weights)
-  maml = train_maml(env, model,config)
+  maml = PolicyNetwork()
+  maml.apply(initialize_weights)
+  #maml = train_maml(env, maml,config)
   
   #use this if you want to save the maml!! then you wont have to compute it over and over
   save_checkpoint({'state_dict': maml.state_dict()},filename="maml.checkpoint.tar")
@@ -186,6 +186,7 @@ def main():
 
   #initialize a network with policy gradient for comparison
   vanilla_network = PolicyNetwork()
+  vanilla_network.apply(initialize_weights)
 
   goal_state = 1.0 #randomly chosen
   std_devs = np.array([.1 for i in xrange(config.action_space_size)])
@@ -204,8 +205,10 @@ def main():
   for test_goal_state in test_goal_states:
     print "comparing networks on goal state of " + str(test_goal_state)
     vanilla_network_copy = copy.deepcopy(vanilla_network)
+    maml_copy = copy.deepcopy(maml)
       #initialize a random network for comparison
     random_model = PolicyNetwork()
+    random_model.apply(initialize_weights)
 
     maml_rewards = []
     random_rewards = []
@@ -216,7 +219,7 @@ def main():
       pretrained_rewards.append(np.sum(rewards))
       train_one_step(vanilla_network_copy,rewards,config.alpha)
 
-      states, actions, rewards = policy_gradient_rollouts(maml,env,config.num_rollouts,test_goal_state,config.gamma,config.h,config.reward_type,std_devs)
+      states, actions, rewards = policy_gradient_rollouts(maml_copy,env,config.num_rollouts,test_goal_state,config.gamma,config.h,config.reward_type,std_devs)
       print "sum of the rewards for maml after " + str(i) +" steps: " + str(np.sum(rewards))
       maml_rewards.append(np.sum(rewards))
       train_one_step(maml,rewards,config.alpha)
