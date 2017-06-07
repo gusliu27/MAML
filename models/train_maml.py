@@ -52,8 +52,8 @@ def parseConfig(description="Default Model Description"):
   parser.add_argument('--h', type=int, help='episode length', default=200)
   parser.add_argument('--nr', type=int, help='number of rollouts per task', default = 20)
   parser.add_argument('--hs', type=int, help='hidden size', default = 100)
-  parser.add_argument('--a', type=float, help='alpha', default = 1e-3)
-  parser.add_argument('--b', type=float, help='beta', default = 1e-3)
+  parser.add_argument('--a', type=float, help='alpha', default = 1e-1)
+  parser.add_argument('--b', type=float, help='beta', default = 2e-2)
   parser.add_argument('--nmi', type=int, help='numer of meta iterations', default = 100)
   parser.add_argument('--gpu', action='store_true', help='use gpu', default = False)
   parser.add_argument('--gr', type=int, help='range the goal can be in', default = 2)
@@ -71,7 +71,7 @@ def initialize_weights(m):
 def select_action(model, state):
   state = torch.from_numpy(state).float().unsqueeze(0)
   means = model(Variable(state))
-  std_devs = Variable(torch.FloatTensor(np.array([.5 for i in xrange(6)])))
+  std_devs = Variable(torch.FloatTensor(np.array([0 for i in xrange(6)])))
   action = torch.normal(means, std_devs)
   model.saved_actions.append(action)
   return action.data
@@ -125,6 +125,8 @@ def train_maml(env,meta_model,config):
     #test_rollout_states = []
     #test_rollout_actions = []
     #test_rollout_rewards = []
+    if meta_iter == 1:
+      config.alpha =.05
     total_loss = 0
     new_model = copy.deepcopy(meta_model)
     print "meta iteration number " + str(meta_iter)
@@ -137,9 +139,9 @@ def train_maml(env,meta_model,config):
       states, actions, rewards = policy_gradient_rollouts(meta_model_copy,env,config.num_rollouts,goal_state,config.gamma,config.h,config.reward_type,std_devs)
       total_loss += np.sum(rewards)
       rewards = torch.Tensor(rewards)
-      if task_number % 10 == 0:
-        print "goal_state is " + str(goal_state)
-        print "Sum of discounted rewards on training rollouts is " +str(rewards.sum())
+      #if task_number % 10 == 0:
+      #  print "goal_state is " + str(goal_state)
+      #  print "Sum of discounted rewards on training rollouts is " +str(rewards.sum())
       train_one_step(meta_model_copy,rewards,config.alpha)
 
       #get training data for meta learning
@@ -148,8 +150,8 @@ def train_maml(env,meta_model,config):
       #meta learning
       for copy_param, new_model_param in zip(meta_model_copy.parameters(),new_model.parameters()):
         new_model_param.data -= config.beta*copy_param.grad.data
-      if task_number % 10 == 0:
-        print "Sum of discounted rewards on test rollouts is " +str(np.sum(rewards))
+      #if task_number % 10 == 0:
+      #  print "Sum of discounted rewards on test rollouts is " +str(np.sum(rewards))
 
       #test_rollout_states.extend(states)
       #test_rollout_actions.extend(actions)
@@ -175,7 +177,7 @@ def main():
   #model_vars.append(Variable(torch.randn(config.action_space_size,config.hidden_size).type(config.dtype), requires_grad=True))
   maml = PolicyNetwork()
   maml.apply(initialize_weights)
-  #maml = train_maml(env, maml,config)
+  maml = train_maml(env, maml,config)
   
   #use this if you want to save the maml!! then you wont have to compute it over and over
   save_checkpoint({'state_dict': maml.state_dict()},filename="maml.checkpoint.tar")
