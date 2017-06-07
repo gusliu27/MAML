@@ -120,14 +120,16 @@ def policy_gradient_rollouts(model,env,num_rollouts,goal_state,gamma,horizon,rew
 
 def train_maml(env,meta_model,config):
   #assuming the model vars are initialized and that needed constants are all in config
-  avg_loss_per_metaiter = []
+  loss_history_test = []
+  lost_history_train = []
   for meta_iter in xrange(config.num_meta_iterations):
     #test_rollout_states = []
     #test_rollout_actions = []
     #test_rollout_rewards = []
     if meta_iter == 1:
       config.alpha =.05
-    total_loss = 0
+    total_loss_test = 0
+    total_loss_train = 0
     new_model = copy.deepcopy(meta_model)
     print "meta iteration number " + str(meta_iter)
     goal_state = 0
@@ -137,7 +139,7 @@ def train_maml(env,meta_model,config):
       #get rollout for task
       std_devs = np.array([.1 for i in xrange(config.action_space_size)])
       states, actions, rewards = policy_gradient_rollouts(meta_model_copy,env,config.num_rollouts,goal_state,config.gamma,config.h,config.reward_type,std_devs)
-      total_loss += np.sum(rewards)
+      total_loss_train += np.sum(rewards)
       rewards = torch.Tensor(rewards)
       #if task_number % 10 == 0:
       #  print "goal_state is " + str(goal_state)
@@ -146,6 +148,7 @@ def train_maml(env,meta_model,config):
 
       #get training data for meta learning
       states, actions, rewards = policy_gradient_rollouts(meta_model_copy,env,config.num_rollouts,goal_state,config.gamma,config.h,config.reward_type,std_devs)
+      total_loss_test += np.sum(rewards)
       train_one_step(meta_model_copy,rewards,config.alpha,False)
       #meta learning
       for copy_param, new_model_param in zip(meta_model_copy.parameters(),new_model.parameters()):
@@ -156,10 +159,12 @@ def train_maml(env,meta_model,config):
       #test_rollout_states.extend(states)
       #test_rollout_actions.extend(actions)
       #test_rollout_rewards.extend(rewards)
-    print "average loss from test samples on meta iteration " +str(meta_iter) + " was " + str(total_loss/(config.meta_batch_size*config.num_rollouts))
-    avg_loss_per_metaiter.append(total_loss/(config.meta_batch_size*config.num_rollouts))
+    print "average loss from test samples on meta iteration " +str(meta_iter) + " was " + str(total_loss_test/(config.meta_batch_size*config.num_rollouts))
+    loss_history_test.append(total_loss_test/(config.meta_batch_size*config.num_rollouts))
+    lost_history_train.append(total_loss_train/(config.meta_batch_size*config.num_rollouts))
     meta_model = new_model
-  print avg_loss_per_metaiter
+  print loss_history_test
+  print lost_history_train
   return meta_model
 
 
