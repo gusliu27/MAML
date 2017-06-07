@@ -47,14 +47,14 @@ class Config:
 def parseConfig(description="Default Model Description"):
   parser = argparse.ArgumentParser(description=description)
   
-  parser.add_argument('--g', type=str, help='gamma', default = .6)
-  parser.add_argument('--bs', type=int, help='batch size of tasks per meta iteration', default = 20)
+  parser.add_argument('--g', type=str, help='gamma', default = .99)
+  parser.add_argument('--bs', type=int, help='batch size of tasks per meta iteration', default = 40)
   parser.add_argument('--h', type=int, help='episode length', default=200)
   parser.add_argument('--nr', type=int, help='number of rollouts per task', default = 20)
   parser.add_argument('--hs', type=int, help='hidden size', default = 100)
   parser.add_argument('--a', type=float, help='alpha', default = 1e-3)
   parser.add_argument('--b', type=float, help='beta', default = 1e-3)
-  parser.add_argument('--nmi', type=int, help='numer of meta iterations', default = 20)
+  parser.add_argument('--nmi', type=int, help='numer of meta iterations', default = 100)
   parser.add_argument('--gpu', action='store_true', help='use gpu', default = False)
   parser.add_argument('--gr', type=int, help='range the goal can be in', default = 2)
   parser.add_argument('--asp', type=int, help='action space size', default = 6)
@@ -120,6 +120,7 @@ def policy_gradient_rollouts(model,env,num_rollouts,goal_state,gamma,horizon,rew
 
 def train_maml(env,meta_model,config):
   #assuming the model vars are initialized and that needed constants are all in config
+  avg_loss_per_metaiter = []
   for meta_iter in xrange(config.num_meta_iterations):
     #test_rollout_states = []
     #test_rollout_actions = []
@@ -154,9 +155,9 @@ def train_maml(env,meta_model,config):
       #test_rollout_actions.extend(actions)
       #test_rollout_rewards.extend(rewards)
     print "average loss from test samples on meta iteration " +str(meta_iter) + " was " + str(total_loss/(config.meta_batch_size*config.num_rollouts))
-    total_loss = 0
+    avg_loss_per_metaiter.append(total_loss/(config.meta_batch_size*config.num_rollouts))
     meta_model = new_model
-
+  print avg_loss_per_metaiter
   return meta_model
 
 
@@ -195,30 +196,38 @@ def main():
     rewards = torch.Tensor(rewards)
     train_one_step(vanilla_network,rewards,config.alpha)
 
+
+
   #compare the networks!
 
-  test_goal_state = .45 #randomly chosen 
-  print "comparing networks on goal state of " + str(test_goal_state)
-  for i in xrange(10):#how many times do we want to train the thing on new data??
-    states, actions, rewards = policy_gradient_rollouts(vanilla_network,env,config.num_rollouts,test_goal_state,config.gamma,config.h,config.reward_type,std_devs)
-    print "sum of the rewards for vanilla after " + str(i) +" steps: " + str(np.sum(rewards))
-    train_one_step(vanilla_network,rewards,config.alpha)
+  test_goal_states = [.48,1.02,1.44] #randomly chosen goal states
+  for test_goal_state in test_goal_states:
+    print "comparing networks on goal state of " + str(test_goal_state)
+    vanilla_network_copy = copy.deepcopy(vanilla_network)
+      #initialize a random network for comparison
+    random_model = PolicyNetwork()
 
-    states, actions, rewards = policy_gradient_rollouts(maml,env,config.num_rollouts,test_goal_state,config.gamma,config.h,config.reward_type,std_devs)
-    print "sum of the rewards for maml after " + str(i) +" steps: " + str(np.sum(rewards))
-    train_one_step(maml,rewards,config.alpha)
+    maml_rewards = []
+    random_rewards = []
+    pretrained_rewards = []
+    for i in xrange(10):#how many times do we want to train the thing on new data??
+      states, actions, rewards = policy_gradient_rollouts(vanilla_network_copy,env,config.num_rollouts,test_goal_state,config.gamma,config.h,config.reward_type,std_devs)
+      print "sum of the rewards for vanilla after " + str(i) +" steps: " + str(np.sum(rewards))
+      pretrained_rewards.append(np.sum(rewards))
+      train_one_step(vanilla_network_copy,rewards,config.alpha)
 
+      states, actions, rewards = policy_gradient_rollouts(maml,env,config.num_rollouts,test_goal_state,config.gamma,config.h,config.reward_type,std_devs)
+      print "sum of the rewards for maml after " + str(i) +" steps: " + str(np.sum(rewards))
+      maml_rewards.append(np.sum(rewards))
+      train_one_step(maml,rewards,config.alpha)
 
-  #initialize a random network for comparison
-  random_model = PolicyNetwork()
-  for i in xrange(10):#how many times do we want to train the thing on new data??
-    states, actions, rewards = policy_gradient_rollouts(random_model,env,config.num_rollouts,test_goal_state,config.gamma,config.h,config.reward_type,std_devs)
-    print "sum of the rewards for random model after " + str(i) +" steps: " + str(np.sum(rewards))
-    train_one_step(random_model,rewards,config.alpha)
-
-    states, actions, rewards = policy_gradient_rollouts(maml,env,config.num_rollouts,test_goal_state,config.gamma,config.h,config.reward_type,std_devs)
-    print "sum of the rewards for maml after " + str(i) +" steps: " + str(np.sum(rewards))
-    train_one_step(maml,rewards,config.alpha)
+      states, actions, rewards = policy_gradient_rollouts(random_model,env,config.num_rollouts,test_goal_state,config.gamma,config.h,config.reward_type,std_devs)
+      print "sum of the rewards for random model after " + str(i) +" steps: " + str(np.sum(rewards))
+      random_rewards.append(np.sum(rewards))
+      train_one_step(random_model,rewards,config.alpha)
+    print maml_rewards
+    print random_rewards
+    print pretrained_rewards
 
 
 
